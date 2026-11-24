@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>陌生二维码不要扫</title>
+<style>
+  :root{
+    --bg:#eaf4fc;
+    --bg2:#dbeaf7;
+    --ink:#2c3e50;
+    --ink-soft:#5d7a8c;
+    --gray:#8fa9ba;
+    --line:#b8d4e8;
+    --accent:#6b9ec7;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
+    color:var(--ink);
+    font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",system-ui,-apple-system,sans-serif;
+    font-size:17px;
+    line-height:1.85;
+    letter-spacing:.02em;
+    overflow-x:hidden;
+    position:relative;
+  }
+  
+  /* 小鱼背景 */
+  .fish-bg{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden;}
+  .fish{position:absolute;opacity:0.5;animation:swim linear infinite;}
+  @keyframes swim{
+    0%{transform:translateX(110vw) translateY(0);}
+    100%{transform:translateX(-20vw) translateY(-15px);}
+  }
+  .fish svg{
+    display:block;
+    filter: drop-shadow(0 4px 6px rgba(107, 158, 199, 0.15)); /* 柔和光晕 */
+  }
+  
+  #app{
+    position:relative;z-index:1;
+    max-width:680px;margin:0 auto;
+    min-height:100%;padding:28px 22px 90px;
+  }
+  .page{animation:fade .45s ease both;}
+  @keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .stage{white-space:pre-wrap;word-break:break-word;}
+  .stage p{margin:0 0 1.1em;}
+  .stage p:last-child{margin-bottom:0;}
+  .gray{color:var(--gray);}
+  .bold{font-weight:700;}
+  .big{font-size:1.25em;font-weight:700;letter-spacing:.06em;}
+  .cursor{display:inline-block;width:.5em;height:1.05em;vertical-align:-.15em;margin-left:2px;background:var(--ink);opacity:.55;animation:blink .9s steps(1) infinite;}
+  @keyframes blink{50%{opacity:0}}
+  .hint{margin-top:14px;font-size:13px;color:var(--ink-soft);opacity:.75;text-align:right;user-select:none;}
+  .panel{margin-top:18px;background:#f4f9fd;border:1px solid var(--line);border-radius:12px;padding:14px;}
+  .row{display:flex;gap:8px;}
+  input[type=text]{flex:1;min-width:0;font:inherit;font-size:16px;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:9px;padding:10px 12px;outline:none;}
+  input[type=text]:focus{border-color:var(--accent);}
+  button{font:inherit;font-size:15px;color:#fff;background:var(--accent);border:none;border-radius:9px;padding:10px 16px;cursor:pointer;transition:opacity .2s;}
+  button:active{opacity:.75;}
+  button.ghost{background:transparent;color:var(--ink-soft);border:1px solid var(--line);}
+  .tip{margin-top:10px;font-size:14px;color:var(--ink-soft);display:none;}
+  .tip.show{display:block;}
+  .err{margin-top:8px;font-size:14px;color:#c05b4d;display:none;}
+  .err.show{display:block;}
+  .wheel-wrap{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:20px;user-select:none;}
+  .wheel-unit{display:flex;align-items:center;gap:8px;}
+  .wheel-label{font-size:15px;color:var(--ink-soft);}
+  .wheel{position:relative;height:132px;width:64px;overflow:hidden;border:1px solid var(--line);border-radius:10px;background:#fff;}
+  .wheel:before,.wheel:after{content:"";position:absolute;left:0;right:0;height:34px;z-index:2;pointer-events:none;}
+  .wheel:before{top:0;background:linear-gradient(#fff,rgba(255,255,255,0));}
+  .wheel:after{bottom:0;background:linear-gradient(rgba(255,255,255,0),#fff);}
+  .wheel-track{position:absolute;left:0;right:0;top:0;transition:transform .18s ease-out;}
+  .wheel-item{height:44px;line-height:44px;text-align:center;font-size:20px;color:var(--ink);}
+  .wheel-mid{position:absolute;left:0;right:0;top:44px;height:44px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);z-index:1;pointer-events:none;}
+  .center{text-align:center;}
+</style>
+</head>
+<body>
+<div class="fish-bg" id="fishBg"></div>
+<div id="app"></div>
+<script>
+/* 生成真正可爱的小胖鱼（几何拼接版） */
+(function(){
+  var bg = document.getElementById('fishBg');
+  // 清新可爱的浅蓝色系
+  var colors = ['#7ab8f5', '#9ac9fa', '#b8d8fc', '#66a6ea', '#cbe4fd'];
+  
+  for(var i=0; i<12; i++){
+    var d = document.createElement('div');
+    d.className = 'fish';
+    
+    // 随机大小、位置、速度
+    var size = 24 + Math.random()*30; 
+    var top = 5 + Math.random()*85;   
+    var dur = 25 + Math.random()*20;  
+    var delay = Math.random()*25;     
+    
+    d.style.top = top + '%';
+    d.style.animationDuration = dur + 's';
+    d.style.animationDelay = '-' + delay + 's';
+    d.style.opacity = 0.4 + Math.random()*0.4;
+    
+    var color = colors[Math.floor(Math.random()*colors.length)];
+    
+    // 用圆和三角形拼出完美的小胖鱼
+    var svg = '<svg width="'+size+'" height="'+size+'" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">';
+    // 鱼尾巴 (左侧的三角形，圆角处理)
+    svg += '<path d="M14 20 Q8 12 4 16 Q6 20 4 24 Q8 28 14 20 Z" fill="'+color+'" opacity="0.8"/>';
+    // 鱼身体 (右侧一个大圆，稍微压扁一点，更显胖)
+    svg += '<ellipse cx="24" cy="20" rx="12" ry="9" fill="'+color+'"/>';
+    // 鱼鳍 (背上的小半圆)
+    svg += '<path d="M22 11 Q26 6 28 12 Z" fill="'+color+'" opacity="0.9"/>';
+    // 眼睛 (白色加黑色瞳孔)
+    svg += '<circle cx="31" cy="18" r="2.5" fill="#ffffff"/>';
+    svg += '<circle cx="32" cy="18" r="1.2" fill="#2c3e50"/>';
+    
+    svg += '</svg>';
+    d.innerHTML = svg;
+    bg.appendChild(d);
+  }
+})();
+
+function norm(s){
+  return String(s).toLowerCase().replace(/[\s\u3000]+/g,"").replace(/[，。,.!！?？、;；:："'“”‘’]/g,"");
+}
+
+var TYPE_SPEED = 85; 
+var DELAY_30S = 30000; 
+var PHONE = "13397048524";
+
+var script = [
+  {type:"type", text:"陌生二维码不要扫，\n请注意网络安全。", hint:"点屏幕继续"},
+  {type:"type", text:"笨啊呵呵呵呵呵呵，\n我就知道你肯定会扫码的✌︎ ॑꒳ ॑✌︎", hint:"点屏幕继续"},
+  
+  {type:"birthday", text:"为确保是本人操作，\n请输入某人的生日。", hint:"上下滚动选择月份和日期"},
+  
+  {type:"type", text:"这里有6 个简单的文字解谜游戏，每一个对应着一份包装。", hint:"点屏幕继续"},
+  {type:"type", text:"每解开一道题才可以打开对应的包装，拒绝直接拆开，好歹配合我一下。", hint:"点屏幕继续"},
+  
+  {type:"quiz", title:"第一道题：Caesar", text:"Three letters back+NQLWWHG VFDUI", hintText:"提示：凯撒轮盘", answers:["knitted scarf","knittedscarf"]},
+  {type:"type", text:"打开emoji😪的包装。\n(打开后再点屏幕呀)", hint:"点屏幕继续"},
+  {type:"type", text:"😪\n寄东西的初心是想把我做的黄油饼干和雪花酥寄给你一点尝尝。\n后面想想，不清楚你能不能吃甜，而且只寄这个似乎不太好。\n想着装几块给你尝尝算了。", gray:"11 月2 日补：\n已被家弟与同窗分食殆尽，堪称饕鬄也，洵属抱歉哥哥。", hint:"点屏幕继续"},
+  {type:"type", text:"凑巧我们这边温度骤降，0°C～15°C 这样。\n我又开始了我的织围巾大工程，织围巾的习惯已经好多年了。\n只不过今年因为丧失爱机提前了一段时间。\n好想和你炫耀炫耀我这么多年织的各种款式，家里已经很多年没有买过围巾了。\n打算给你织条。\n不过我最近几年都是织的比较可爱的，华夫格、可颂卷、小猫条什么的。\n不太适合你，当然，你喜欢那就另当别论。\n所以选择了我第一次学织围巾时的款式。", gray:"11 月15 日补：\n塔叠嘟你们那儿为什么现在还温度这么高，愤怒，完全暴露我的地理素养。\n你当时傍晚校园跑我突然意识到不对劲，后来复习地理时看到地图才反应过来重庆是南方的。\n没关系，那你供着我的围巾吧，诅咒重庆今年特别特别特别特别特别冷，早知道不织了，无力，，，", hint:"点屏幕继续"},
+  
+  {type:"quiz", title:"第二题", text:"看看脚。", hintText:"提示：脚用品", answers:["袜子"]},
+  {type:"type", text:"打开emoji🤔的包装\n(打开后再点屏幕呀)", hint:"点屏幕继续"},
+  {type:"type", text:"🤔\n我跟你说我织围巾的时候发现不太对劲，然后怕你多想，遂开始寻找好笑的东西。\n奶龙学长光荣上榜。\n看看脚。\n看看脚。\n看看脚。\n你记得穿上一次让我笑笑。", hint:"点屏幕继续"},
+  
+  {type:"quiz", title:"第三题：Morse", text:"-... --- --- -.-", hintText:"提示：摩斯密码", answers:["book"]},
+  {type:"type", text:"打开emoji🤗的包装。\n(打开后再点屏幕呀)", hint:"点屏幕继续"},
+  {type:"type", text:"🤗\n某天上课，走神的我寻思这不符合我文艺逼的形象呀。\n想来想去，严肃挑选我读过的书，重新买一本推荐给你看。\n这里敲重点，请你在明年6 月前看完，我是要检查的。\n命令你培养阅读兴趣。\n原本企图要求你在书里写写夹评、段评、感想什么的，因为我想收藏这本书。\n还是不为难了，书你自己留着。\n一定要看完呀，说不定能强制缓解读书障碍(？\n这本书在不晦涩的同时也有很多深度，我觉得你能读下去。\n我几年前读的是绿蓝和周月玲的版本，但是买的时候只有陈澄和的版本了。\n网上都在声讨陈澄和，说他翻译的某些语言表达是很受争议的。\n我没读过他的版本，好像是把查理写的比较登味，有很多男性的劣根性。\n但愿不是太过分，因为我还挺喜欢这本书的，这里讲述了很多人性问题。\n好害怕你看到里面的一些语言觉得我读书品味有问题。\n但是我根本买不到周月玲的版本。", hint:"点屏幕继续"},
+  
+  {type:"type", text:"彩蛋", cls:"bold", hint:"点屏幕继续"},
+  {type:"type", text:"打开emoji😈的包装。\n(打开后再点屏幕呀)", hint:"点屏幕继续"},
+  {type:"type", text:"😈\n看到了奶龙勺子遂购入。\n只有勺子感觉用处不大，又买了个杯子。\n结果发现勺子是塑料的，\n主打你沉浸式体验奶龙舌头()", hint:"点屏幕继续"},
+  
+  {type:"quiz", title:"第四题：Alphabet", text:"3, 1, 3, 20, 21, 19", hintText:"提示：数字对应字母表", answers:["cactus"]},
+  {type:"type", text:"打开emoji😢的包装。\n(打开后再点屏幕呀)", hint:"点屏幕继续"},
+  {type:"type", text:"😢\n至于前面提到的“重新买一本”，我计划拿一本我读过的写满批注的书给你。\n你读的时候能看看我的想法，要是有一些思想共鸣的时候，那这本书确实圆满了。(一个阅读爱好者终身的心愿)\n可我又记起你本就说过不爱阅读，万一看到我的文字不理解不赞同，感慨我豪情在天那太不妙了。\n我拒绝成为装货，没有把我的旧书给你。\n也有重要的一点，我觉得书其实是很私密的东西，赠送旧书相当于分享精神世界和价值观，还是观点问题，确实怕你质疑我的读书品味。\n反正我书拿回来又后悔了，陈澄和我恨你的登味。。。\n正因为这一点，我审视了这本书的思想内容是否有些过于批判，影响你的价值观，于是思考有哪些东西是积极向上的，来中和一下。\n因此选中了植物，这是仙人掌的一个品种，叫西瓜兜，好吧，其实正式一点叫星兜锦。\n不知道国内商家为什么要叫他西瓜兜，明明更像贝贝小南瓜。\n是你生日那天种的，名字叫十二。\n其实想自己养着的，毕竟跟我快一个月了都。\n我还种了一些别的，分别是零六(11 月6 月种的)、小土猫(肚子里都是土)、葱白剑圣(动画片《美食大冒险》衍生手游的角色，长得像大葱)\n但愿你是旺植体质，反正我养什么东西都不会活太久，自己命倒是很硬，没办法，神的身体素质就是如此强大。", hint:"点屏幕继续"},
+  
+  {type:"quiz", title:"第五题：Mirror", text:"koobeton", hintText:"提示：字母从后往前排", answers:["notebook"]},
+  {type:"type", text:"打开emoji🤓的包装。\n(打开后再点屏幕呀)", hint:"点屏幕继续"},
+  {type:"type", text:"🤓\n我还愁你一直没看到我短信，我该怎么给你寄东西。\n然后你就突然回我信息了。\n本来想买死亡笔记款式的笔记本，谁让你不舒服你就把谁写进去。\n但是本子前面几页都是夜神月的文字，我的字显得很多余。\n换了拾光的，我挺喜欢用拾光的精装本。\n但是这本蕨类主题里面居然不是全空白，还有一些英文和中文什么的，我不喜欢里面的英文中文，唉，本来想突出植物的生机来着。", gray:"11 月15 补：\n我又看到了一款“公共卫生间产品制造与管理方法研究”的笔记本，好有意思。\n为什么这么晚才看到，这个买给你应该很好玩。\n我等我的日记本写完就买这个当新日记本呵呵呵呵呵。", hint:"点屏幕继续"},
+  
+  {type:"quiz", title:"第六题", text:"胸针假装和“机关”联络的工具是？", hintText:"提示：红色滑盖手机，五个字。", answers:["sg001"]},
+  {type:"type", text:"打开emoji😡的包装。\n(打开后再点屏幕呀)", hint:"点屏幕继续"},
+  {type:"type", text:"😡\n可恶你个臭哥哥我气死了，我真没想到你让我画画。\n其实我的画技真的一言难尽，尤其现在根本没什么时间画画，每次一画都发现自己的技术狠狠下降，特别焦虑。\n而且我完全低精力人群，每次画一幅画都要画好久好久。", gray:"11 月21 日补：\n我糟糕的人体，人体我画地为牢啊……\n后面排线力竭了，疯狂敷衍。\n但愿你是近视的，忽略我嘈杂的排线。", hint:"点屏幕继续"},
+  {type:"type", text:"还有我早就忘记冈部长什么样了。\n画的过程很无奈，因为越画越不像，我不会画锥子脸，并不想你嘲笑我，但，，，\n我的面子已经如水化般化开。\n气死了臭哥哥臭哥哥臭哥哥臭哥哥，，，\n每天画的时候都在痛斥你。", hint:"点屏幕继续"},
+  {type:"type", text:"唉，谢谢你肯定我的爱好。", hint:"点屏幕继续"},
+  
+  {type:"type", text:"okk 没有了。",  hint:"点屏幕继续"},
+  {type:"type", text:"哥哥你会觉得好玩吗？", hint:"点屏幕继续"},
+  {type:"type", text:"不好玩也不许说出来啊喂，我是不会听的。", hint:"点屏幕继续"},
+  {type:"type", text:"一直想和你分享一些好玩或者槽点很多的事，不过受短信限制，我也不太敢发很多信息。", hint:"点屏幕继续"},
+  {type:"type", text:"原本整理了四十多条，但是前面的文字已经很多了，如果再加上去，怕你没有耐心看。", hint:"点屏幕继续"},
+  {type:"type", text:"这个网站里所有文字以及那四十多条，是我写出来后再把手稿整理成电子版，然后部署网站。\n原本是想制成卡片，但我没时间。\n打算直接寄手稿，可我抽时间写的因此很潦草，我绝对不会允许我的草字流落在外影响我的形象。\n要不然就直接寄给你了，省得我研究不熟悉领域。\n我想在网站里加图片的，特意用手表和ccd 每天各种拍准备加进去，但是做的时候才发现我不会。。。\n你赶紧好好学计算机教我。", hint:"点屏幕继续", afterDelay:DELAY_30S},
+  
+  {type:"type", text:"我特意设置了等30 秒才出现下一幕。", hint:"点屏幕继续"},
+  {type:"type", text:"因为还有个小彩蛋。\n不过不管你有没有等30 秒都会发现，太明显了。\n我聪明吧呵呵呵呵呵。", hint:"点屏幕继续"},
+  {type:"type", text:"请回答最后一个问题：", hint:"点屏幕继续"},
+  
+  {type:"quiz", title:"", text:"我的手机号是？", hintText:"", answers:[PHONE], inputMode:"numeric"},
+  
+  {type:"type", text:"okk 非常聪明的哥哥。\n现在请你拿起相框，支架底下好像有些东西(？", hint:"点屏幕继续"},
+  {type:"type", text:"我给你找了些事做，不能让你过得太清闲，浪费你的时间我会很开心。", hint:"点屏幕继续"},
+  {type:"type", text:"这里有100 枚硬币，你慢慢数。", hint:"点屏幕继续"},
+  {type:"type", text:"我啰里吧嗦的比较话痨，而且表达也乱七八糟的。", hint:"点屏幕继续"},
+  {type:"type", text:"谢谢你耐心看完。", hint:"点屏幕继续"},
+  {type:"type", text:"后面没有什么了。", hint:"点屏幕继续"},
+  {type:"type", text:"希望你开心。", hint:"", last:true}
+];
+
+/* 引擎与逻辑 */
+var app = document.getElementById("app");
+var idx = 0;
+var typingTimer = null;
+var typingDone = false;
+var locked = false;
+
+function clearTyping(){
+  if(typingTimer){ clearInterval(typingTimer); typingTimer=null; }
+}
+
+function renderTypePage(step){
+  var wrap = document.createElement("div");
+  wrap.className = "page";
+  var stage = document.createElement("div");
+  stage.className = "stage";
+  wrap.appendChild(stage);
+
+  var normalLines = step.text.split("\n");
+  var nodes = [];
+  for(var i=0; i<normalLines.length; i++){
+    var p = document.createElement("p");
+    if(step.cls) p.className = step.cls;
+    p.textContent = "";
+    stage.appendChild(p);
+    nodes.push({node:p, text:normalLines[i]});
+  }
+
+  var grayLines = [];
+  if(step.gray){
+    grayLines = step.gray.split("\n");
+    for(var j=0; j<grayLines.length; j++){
+      var gp = document.createElement("p");
+      gp.className = "gray";
+      gp.textContent = "";
+      stage.appendChild(gp);
+      nodes.push({node:gp, text:grayLines[j]});
+    }
+  }
+
+  var hint = document.createElement("div");
+  hint.className = "hint";
+  hint.textContent = step.hint || "";
+  wrap.appendChild(hint);
+  
+  app.innerHTML = "";
+  app.appendChild(wrap);
+  typingDone = false;
+
+  var nodeIdx = 0, charIdx = 0;
+  clearTyping();
+  typingTimer = setInterval(function(){
+    if(nodeIdx >= nodes.length){
+      clearTyping();
+      typingDone = true;
+      if(step.afterDelay){
+        locked = true;
+        setTimeout(function(){
+          locked = false;
+          nextStep();
+        }, step.afterDelay);
+      }
+      return;
+    }
+    var cur = nodes[nodeIdx];
+    if(charIdx < cur.text.length){
+      cur.node.textContent += cur.text.charAt(charIdx);
+      charIdx++;
+    } else {
+      nodeIdx++;
+      charIdx = 0;
+    }
+  }, TYPE_SPEED);
+}
+
+function fastForward(step){
+  clearTyping();
+  var wrap = document.createElement("div");
+  wrap.className = "page";
+  var stage = document.createElement("div");
+  stage.className = "stage";
+  wrap.appendChild(stage);
+
+  step.text.split("\n").forEach(function(line){
+    var p = document.createElement("p");
+    if(step.cls) p.className = step.cls;
+    p.textContent = line;
+    stage.appendChild(p);
+  });
+  if(step.gray){
+    step.gray.split("\n").forEach(function(line){
+      var gp = document.createElement("p");
+      gp.className = "gray";
+      gp.textContent = line;
+      stage.appendChild(gp);
+    });
+  }
+  var hint = document.createElement("div");
+  hint.className = "hint";
+  hint.textContent = step.hint || "";
+  wrap.appendChild(hint);
+  
+  app.innerHTML = "";
+  app.appendChild(wrap);
+  typingDone = true;
+  
+  if(step.afterDelay){
+    locked = true;
+    setTimeout(function(){
+      locked = false;
+      nextStep();
+    }, step.afterDelay);
+  }
+}
+
+function renderBirthday(step){
+  var wrap = document.createElement("div");
+  wrap.className = "page";
+  var stage = document.createElement("div");
+  stage.className = "stage";
+  wrap.appendChild(stage);
+  step.text.split("\n").forEach(function(line){
+    var p = document.createElement("p");
+    p.textContent = line;
+    stage.appendChild(p);
+  });
+
+  var wheelWrap = document.createElement("div");
+  wheelWrap.className = "wheel-wrap";
+
+  function makeWheel(label, min, max, init){
+    var unit = document.createElement("div");
+    unit.className = "wheel-unit";
+    var lab = document.createElement("div");
+    lab.className = "wheel-label";
+    lab.textContent = label;
+    var wheel = document.createElement("div");
+    wheel.className = "wheel";
+    var track = document.createElement("div");
+    track.className = "wheel-track";
+    for(var r=0; r<3; r++){
+      for(var v=min; v<=max; v++){
+        var it = document.createElement("div");
+        it.className = "wheel-item";
+        it.textContent = (v<10?"0":"")+v;
+        track.appendChild(it);
+      }
+    }
+    wheel.appendChild(track);
+    var mid = document.createElement("div");
+    mid.className = "wheel-mid";
+    wheel.appendChild(mid);
+
+    var oneSet = max-min+1;
+    var offset = oneSet + (init-min);
+    var ITEM_H = 44;
+    
+    function apply(){
+      var center = wheel.clientHeight/2 - ITEM_H/2;
+      track.style.transform = "translateY(" + (center - offset*ITEM_H) + "px)";
+    }
+    setTimeout(apply, 50);
+
+    var startY=0, startOffset=0, dragging=false;
+    function down(e){
+      dragging=true;
+      startY = e.touches ? e.touches[0].clientY : e.clientY;
+      startOffset = offset;
+    }
+    function move(e){
+      if(!dragging) return;
+      var y = e.touches ? e.touches[0].clientY : e.clientY;
+      var dy = y - startY;
+      offset = startOffset - dy/ITEM_H;
+      var minOff = oneSet;
+      var maxOff = oneSet*2 - 1;
+      if(offset < minOff) offset = minOff;
+      if(offset > maxOff) offset = maxOff;
+      apply();
+      if(e.cancelable) e.preventDefault();
+    }
+    function up(){
+      if(!dragging) return;
+      dragging=false;
+      offset = Math.round(offset);
+      apply();
+    }
+    wheel.addEventListener("mousedown", down);
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    wheel.addEventListener("touchstart", down, {passive:true});
+    wheel.addEventListener("touchmove", move, {passive:false});
+    wheel.addEventListener("touchend", up);
+
+    unit.appendChild(lab);
+    unit.appendChild(wheel);
+    return {
+      el: unit,
+      getValue: function(){
+        var i = Math.round(offset) - oneSet;
+        return min + ((i % oneSet)+oneSet)%oneSet;
+      }
+    };
+  }
+
+  var monthW = makeWheel("月", 1, 12, 1);
+  var dayW = makeWheel("日", 1, 31, 1);
+  wheelWrap.appendChild(monthW.el);
+  wheelWrap.appendChild(dayW.el);
+  wrap.appendChild(wheelWrap);
+
+  var hint = document.createElement("div");
+  hint.className = "hint";
+  hint.textContent = step.hint || "";
+  wrap.appendChild(hint);
+
+  var btnRow = document.createElement("div");
+  btnRow.className = "panel";
+  var btn = document.createElement("button");
+  btn.textContent = "确认生日";
+  btn.style.width = "100%";
+  btnRow.appendChild(btn);
+  wrap.appendChild(btnRow);
+
+  var err = document.createElement("div");
+  err.className = "err";
+  err.textContent = "再想想？";
+  wrap.appendChild(err);
+
+  btn.onclick = function(){
+    if(monthW.getValue() === 10 && dayW.getValue() === 12){
+      nextStep();
+    }else{
+      err.classList.add("show");
+    }
+  };
+
+  app.innerHTML = "";
+  app.appendChild(wrap);
+  typingDone = true;
+}
+
+function renderQuiz(step){
+  var wrap = document.createElement("div");
+  wrap.className = "page";
+  var stage = document.createElement("div");
+  stage.className = "stage";
+  wrap.appendChild(stage);
+
+  if(step.title){
+    var t = document.createElement("p");
+    t.className = "bold";
+    t.textContent = step.title;
+    stage.appendChild(t);
+  }
+  step.text.split("\n").forEach(function(line){
+    var p = document.createElement("p");
+    p.textContent = line;
+    stage.appendChild(p);
+  });
+
+  var panel = document.createElement("div");
+  panel.className = "panel";
+
+  var row = document.createElement("div");
+  row.className = "row";
+  var input = document.createElement("input");
+  input.type = "text";
+  input.placeholder = "输入答案";
+  if(step.inputMode) input.inputMode = step.inputMode;
+  var okBtn = document.createElement("button");
+  okBtn.textContent = "提交";
+  row.appendChild(input);
+  row.appendChild(okBtn);
+  panel.appendChild(row);
+
+  if(step.hintText){
+    var tipBtn = document.createElement("button");
+    tipBtn.className = "ghost";
+    tipBtn.textContent = "提示";
+    tipBtn.style.marginTop = "10px";
+    tipBtn.style.fontSize = "13px";
+    tipBtn.style.padding = "7px 12px";
+    panel.appendChild(tipBtn);
+
+    var tip = document.createElement("div");
+    tip.className = "tip";
+    tip.textContent = step.hintText;
+    panel.appendChild(tip);
+    tipBtn.onclick = function(){ tip.classList.toggle("show"); };
+  }
+
+  var err = document.createElement("div");
+  err.className = "err";
+  err.textContent = "不对哦，再试试。";
+  panel.appendChild(err);
+
+  wrap.appendChild(panel);
+  app.innerHTML = "";
+  app.appendChild(wrap);
+  typingDone = true;
+
+  function submit(){
+    var val = norm(input.value);
+    if(!val){ err.classList.add("show"); return; }
+    var ok = false;
+    for(var i=0; i<step.answers.length; i++){
+      if(norm(step.answers[i]) === val){ ok = true; break; }
+    }
+    if(ok){
+      err.classList.remove("show");
+      nextStep();
+    }else{
+      err.classList.add("show");
+      input.focus();
+    }
+  }
+  okBtn.onclick = submit;
+  input.addEventListener("keydown", function(e){
+    if(e.key === "Enter") submit();
+  });
+}
+
+function renderStep(step){
+  if(step.type === "birthday"){ renderBirthday(step); return; }
+  if(step.type === "quiz"){ renderQuiz(step); return; }
+  renderTypePage(step);
+}
+
+function nextStep(){
+  clearTyping();
+  typingDone = false;
+  idx++;
+  if(idx >= script.length){
+    var end = document.createElement("div");
+    end.className = "page center";
+    end.style.marginTop = "40vh";
+    end.style.color = "var(--ink-soft)";
+    end.textContent = "—— 完 ——";
+    app.innerHTML = "";
+    app.appendChild(end);
+    return;
+  }
+  renderStep(script[idx]);
+}
+
+document.addEventListener("click", function(e){
+  if(locked) return;
+  var step = script[idx];
+  if(!step) return;
+  if(step.type === "quiz" || step.type === "birthday") return;
+  if(e.target.closest("input,button,.panel,.wheel-wrap")) return;
+
+  if(typingTimer){
+    fastForward(step);
+    return;
+  }
+  if(typingDone){
+    nextStep();
+  }
+});
+
+renderStep(script[0]);
+</script>
+</body>
+</html>
